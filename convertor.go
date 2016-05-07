@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 )
 
@@ -20,11 +21,17 @@ var packageName, varibleName string
 
 type CountryIP struct {
 	Name  string
-	Start int
-	End   int
+	Start uint32
+	End   uint32
 }
 
-func generateSource(networks []*CountryIP) []byte {
+type CountryIPs []*CountryIP
+
+func (c CountryIPs) Len() int           { return len(c) }
+func (c CountryIPs) Less(i, j int) bool { return c[i].End < c[j].End }
+func (c CountryIPs) Swap(i, j int)      { c[i], c[j] = c[j], c[i] }
+
+func generateSource(networks CountryIPs) []byte {
 	b := new(bytes.Buffer)
 
 	// file header
@@ -39,8 +46,8 @@ func generateSource(networks []*CountryIP) []byte {
 	// variable
 	b.WriteString(fmt.Sprintf(`var %s = []struct{
 	Name string
-	Start  int
-	End    int}{`, varibleName))
+	Start  uint32
+	End    uint32}{`, varibleName))
 	for _, n := range networks {
 		b.WriteString(fmt.Sprintf("{%q,%d,%d},\n", n.Name, n.Start, n.End))
 	}
@@ -53,26 +60,17 @@ func generateSource(networks []*CountryIP) []byte {
 	return data
 }
 
-func convertIntToBytes(v int) []byte {
-	var ret [4]byte
-	ret[0] = byte(v >> 24)
-	ret[1] = byte(v >> 16)
-	ret[2] = byte(v >> 8)
-	ret[3] = byte(v)
-	return ret[:]
-}
-
 func convertToCountryIP(record []string) (*CountryIP, error) {
 	if len(record) != 6 {
 		return nil, fmt.Errorf("invalid record format:%v", record)
 	}
 
-	ip1, err := strconv.Atoi(record[2])
+	ip1, err := strconv.ParseInt(record[2], 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
-	ip2, err := strconv.Atoi(record[3])
+	ip2, err := strconv.ParseInt(record[3], 10, 64)
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +79,8 @@ func convertToCountryIP(record []string) (*CountryIP, error) {
 
 	return &CountryIP{
 		Name:  name,
-		Start: ip1,
-		End:   ip2,
+		Start: uint32(ip1),
+		End:   uint32(ip2),
 	}, nil
 }
 
@@ -102,7 +100,7 @@ func main() {
 		log.Fatal("open: ", err)
 	}
 
-	var networks []*CountryIP
+	var networks CountryIPs
 	r := csv.NewReader(f)
 	for {
 		record, err := r.Read()
@@ -120,6 +118,8 @@ func main() {
 		}
 		networks = append(networks, network)
 	}
+
+	sort.Sort(networks)
 
 	data := generateSource(networks)
 	if _, err = os.Stdout.Write(data); err != nil {
